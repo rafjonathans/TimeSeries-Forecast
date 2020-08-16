@@ -1,0 +1,151 @@
+---
+title: "TimeSeries_Forecast"
+author: "RJ"
+date: "8/16/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Time Series - Forecast
+This document summarizes the learning process on Time Series analysis. The original source of the learning material is from [Datacamp](https://www.datacamp.com/projects/515).
+
+
+### Preparation
+Load the dataset and the required packages
+```{r}
+library(tidyverse)
+library(lubridate)
+library(forecast)
+library(Hmisc)
+library(magrittr)
+
+ptt_price <- read.csv(choose.files())
+head(ptt_price)
+
+```
+
+
+```{r}
+# Show unique value in each column
+summarise_all(ptt_price, n_distinct)
+
+# Select column with more than one unique value
+ptt_price_selected <- ptt_price %>% 
+  select_if(summarise_all(., n_distinct) > 1) %>% 
+  rename(region_id = adm1_id,
+         region = adm1_name,
+         market_id = mkt_id,
+         market = mkt_name,
+         month = mp_month,
+         year = mp_year,
+         price = mp_price) %>%
+  mutate(date = ymd(paste(year, month, "01"))) %>% 
+  select(region_id, market, date, price)
+
+describe(ptt_price_selected)
+```
+
+```{r}
+
+location <- list.dirs(choose.dir())
+allfile <- list.files(path = location, pattern = c(".csv"))
+
+datalist <- list()
+for (x in 1:length(allfile)) {
+  # Read dataset
+  datalist[[x]] <- read_csv(paste(location, allfile[x], sep = "\\"))
+}
+
+allfood <- reduce(datalist, bind_rows) %>% 
+              select_if(summarise_all(., n_distinct) > 1) %>% 
+              rename(region_id = adm1_id,
+                     region = adm1_name,
+                     market_id = mkt_id,
+                     market = mkt_name, 
+                     food = cm_name,
+                     month = mp_month,
+                     year = mp_year,
+                     price = mp_price) %>%
+              mutate(date = ymd(paste(year, month, "01"))) %>% 
+              select(region_id, market, date, food, price)
+
+describe(allfood)
+
+```
+
+
+### Exploration
+This 
+
+```{r}
+allfood %>% 
+  filter(food == "Potatoes (Irish)") %>% 
+  group_by(year(date), month(date)) %>% 
+  mutate(average_price = mean(price)) %>% 
+  ggplot() +
+    geom_line(aes(x = date,
+                  y = price,
+                  group = market),
+              alpha = 0.1) +
+    geom_line(aes(x = date,
+                  y = average_price,
+                  color = "red")) +
+    theme_bw() +
+    labs(title = "Potato Price Trend")
+
+```
+
+
+### Forecasting
+Forecasting preparation. As mentioned in the source, best way to conduct forecasting is by using a `ts` object. Further research should be done to ease this process.
+```{r}
+# Make list
+food_price_list <- allfood %>% 
+  group_by(food, date) %>% 
+  summarise(price = mean(price)) %>% 
+  group_split(food, .keep = F) %>% 
+  setNames(unique(allfood$food))
+
+# Create ts object for forecasting
+food_ts <- food_price_list$`Potatoes (Irish)` %$% 
+              ts(price, 
+                 start = c(year(min(date)), month(min(date))), 
+                 end = c(year(max(date)), month(max(date))),
+                 frequency = 12) 
+
+food_ts
+```
+
+
+```{r}
+food_forcast <- forecast(object = food_ts)
+autoplot(food_forcast) +
+  theme_bw()
+```
+
+##### *Simplify by making a function*
+Using the food_price_list
+```{r}
+
+plot_predict <- function(dataset, foodLabel = "Food") {
+dataset %$% 
+  ts(price, 
+  start = c(year(min(date)), month(min(date))), 
+  end = c(year(max(date)), month(max(date))),
+  frequency = 12) %>% 
+  forecast() %>% 
+  autoplot() +
+    theme_bw() +
+    labs(y = foodLabel)
+}
+
+plot_predict(dataset = food_price_list$Cassava, foodLabel = "Cassava")
+
+```
+
