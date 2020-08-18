@@ -1,0 +1,274 @@
+---
+title: "RideSharingService"
+author: "RJ"
+date: "8/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+This machine learning exercise is documented by following a project done by AlverniaEP. Look to her [project](https://rpubs.com/aepoetry/beam_me_up) for the original verion.
+
+The project is related to a ride sharing service in Turkey. The objective is to forecast the driver demand for the next 5 days.
+There are 3 forecasting method used:
+- `est`
+- `stlm`
+- `tbats`
+For knowledge improvement, best to read [this book](https://books.google.co.id/books?id=_bBhDwAAQBAJ&hl=id&source=gbs_book_other_versions) released by the package `forecast` author.
+
+
+## Preparation
+Call the packages and the required dataset. The provided data has features as follow:
+- `timeStamp`: Order time
+- `driverID`: Driver ID
+- `riderID`: Rider ID
+- `orderStatus`: 
+- `confirmedTimeSec`: 
+- `srcGeohash`: Geographical location group(?)
+- `srcLong`: Source location longitude
+- `scrLat`: Source location latitude
+- `destLong`: Destination location longitude
+- `destLat`: Destination location latitude
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+library(forecast)
+library(ggthemes)
+library(plotly)
+
+
+rideSharing <- read_csv(choose.files())
+head(rideSharing)
+```
+
+
+
+## Data Exploration
+### Understanding dataset
+
+- `srcGeohash` and `orderStatus`
+By looking to the grouping summary. It looks like that most of the order is centralized in **s** `srcGeohash` area. Other area most likely has nodrivers or canceled.
+
+```{r}
+rideSharing %>% 
+  group_by(srcGeohash, orderStatus) %>% 
+  summarise(total_status = n())
+
+```
+
+- `orderStatus`
+As mentioned by the first researcher, the orderStatus feature has "cancelled" and duplicated "nodriver". BY looking to the method used to filter out the "nodriver",  assumption taken on the method would be:
+- Rider only can order one at a time, especially if the order time is under the same hour. As grouping is under the same hour 
+
+```{r}
+orderData <- rideSharing %>% 
+  filter(orderStatus != "cancelled") %>% 
+  mutate(Date = timeStamp %>% format("%Y-%m-%d"),
+         Hour = timeStamp %>% hour()) %>%
+  # arrange and group by : riders, date, and hour
+  arrange(riderID, Date, Hour) %>%
+  group_by(riderID, Date, Hour) %>%
+  mutate(prevOrder = lag(orderStatus, default = "NA"),
+         dupOrder = ifelse(orderStatus == prevOrder, "Duplicates", "Not Duplicates"),
+         orderStatus = ifelse(orderStatus == "nodrivers" & dupOrder == "Duplicates", NA, orderStatus)) %>%
+  # drop NA in orderStatus
+  filter(!is.na(orderStatus)) %>%
+  # We're left with "nodrivers" and "confirmed", we still have to throw the "nodrivers" to make it 1 legitimate order
+  mutate(nextOrder = lead(orderStatus, default = "NA"),
+         orderStatus = ifelse(orderStatus == "nodrivers" & nextOrder == "confirmed", NA, orderStatus)) %>%
+  filter(!is.na(orderStatus)) %>%
+  # stop the grouping
+  ungroup() %>% 
+  # Get the requiered data for order forecasting
+  select(timeStamp, Date, Hour, riderID, orderStatus)
+head(orderData)
+```
+
+
+## Forecast
+### Data preparation
+
+```{r}
+demandData <- orderData %>% 
+                group_by(Date, Hour) %>% 
+                summarise(Demand = n()) %>% 
+                ungroup() %>% 
+                complete(Date, Hour) %>% 
+                mutate(Demand = ifelse(is.na(Demand), 0, Demand)) %>% 
+                mutate(Date = as.Date(Date)) %>% 
+                mutate(timeStamp = as.POSIXct(paste(Date, Hour), format = "%Y-%m-%d %H"))
+head(demandData)
+
+```
+
+```{r}
+
+demandData_ts <- ts(demandData$Demand, start = min(demandData$Date), frequency = 24)
+
+demandData_ts %>%
+  head(24 * 7 * 4) %>%
+  decompose() %>% 
+  autoplot() + # Forecast library
+  theme_bw()
+
+```
+
+```{r}
+demandData_tsSsn <- msts(demandData$Demand, seasonal.periods = c(24, 24 * 7))
+
+demandData_tsSsn %>% 
+  head(24 * 7 * 4) %>% 
+  mstl() %>% 
+  autoplot() +
+  theme_bw()
+
+
+```
+
+
+```{r}
+
+demandData %>% 
+  mutate(Day = weekdays(Date)) %>% 
+  ggplot(aes(x = Hour,
+             y = Demand,
+             fill = as.factor(Day))) +
+  geom_bar(stat = "identity",
+           position = position_dodge()) +
+  theme_bw() +
+  labs(fill = "",
+       title = "Total Demand at Hour of the Day")
+
+```
+
+
+```{r}
+constant <- 1
+
+inputForecast <- head(demandData_ts + constant, length(demandData_ts) - 24*6)
+inputForecast_Sn <- head(demandData_tsSsn + constant, length(demandData_tsSsn) - 24*6)
+y_test <- tail(demandData_ts, 24*6)
+
+# Transform constant
+removeConstant <- function(forecastResult, constant = 1){
+  forecastResult[["mean"]] <- forecastResult[["mean"]] - constant
+  forecastResult[["upper"]] <- forecastResult[["upper"]] - constant
+  forecastResult[["lower"]] <- forecastResult[["lower"]] - constant
+  return(forecastResult)
+}
+
+```
+
+
+```{r}
+
+tsForecast <- inputForecast %>% 
+  ets(lambda = 0) %>% 
+  forecast(h = 24*6) %>%   
+  removeConstant()
+
+mstsForecast <- inputForecast_Sn %>% 
+  stlm(lambda = 0) %>% 
+  forecast(h = 24*6) %>% 
+  removeConstant()
+
+tbatsForecast <- inputForecast_Sn %>% 
+  log() %>% 
+  tbats(use.box.cox = FALSE)
+
+tbatsForecast$lambda <- 0
+
+tbatsForecast %<>%
+  forecast(h = 24*6) %>% 
+  removeConstant()
+
+rbind(accuracy(round(as.vector(tsForecast$mean)), y_test),
+      accuracy(round(as.vector(mstsForecast$mean)), y_test),
+      accuracy(round(as.vector(tbatsForecast$mean)), y_test)) %>% 
+  as_tibble(rownames = "Model") %>% 
+  mutate(Model = c("ets", "stlm", "tbats"))
+  
+```
+
+
+```{r}
+forecastCompare <- data.frame(Timestamp = tail(demandData$timeStamp, 24*6),
+           Actual = y_test,
+           tsModel = as.vector(tsForecast$mean),
+           stmlModel = as.vector(mstsForecast$mean),
+           tbatsModel = as.vector(tbatsForecast$mean))
+
+ggplotly(
+  forecastCompare %>% 
+  gather(key, value, Actual, tsModel, stmlModel, tbatsModel) %>% 
+  ggplot(aes(x = Timestamp,
+             y = value,
+             color = key)) +
+  geom_line() +
+  theme_bw()
+)
+```
+
+
+```{r}
+forecastCompare %>% 
+  mutate(tsError = Actual - tsModel,
+         stmlError = Actual - stmlModel,
+         tbatsError = Actual - tbatsModel) %>% 
+  select(Timestamp, matches("Error")) %>% 
+  gather(key, value, matches("Error")) %>% 
+  ggplot(aes(x = Timestamp, 
+             y = value,
+             color = key,
+             shape = key)) +
+  geom_point(alpha = 0.4, size = 3) +
+  theme_bw() 
+  
+ggplotly(forecastCompare %>% 
+  mutate(tsError = Actual - tsModel,
+         stmlError = Actual - stmlModel,
+         tbatsError = Actual - tbatsModel) %>% 
+  select(Timestamp, matches("Error")) %>% 
+  gather(key, value, matches("Error")) %>% 
+  ggplot(aes(x = Timestamp, 
+             y = value,
+             color = key,
+             shape = key)) +
+  geom_point(alpha = 0.4, size = 3) +
+  theme_bw() 
+)
+```
+
+
+
+
+## Findings and next step
+- At this point stml method produce the best forecasting performance with the lowest MAE error. 
+- Simplified forecasting function
+```{r}
+
+
+fets <- function(input, fun, lambda = 0, h = 10, addDependentVar = 1){
+  
+  # Function to add constant avoid Infinite log transformation value
+  removeConstant <- function(forecastResult, constant = addDependentVar){
+    forecastResult[["mean"]] <- forecastResult[["mean"]] - constant
+    forecastResult[["upper"]] <- forecastResult[["upper"]] - constant
+    forecastResult[["lower"]] <- forecastResult[["lower"]] - constant
+    return(forecastResult)
+    }
+  
+  input %>% 
+    fun(lambda = lambda) %>%
+    forecast(h = h) %>% 
+    removeConstant()
+}
+```
+
+- Learn from the package makers. Book is available [here](https://books.google.co.id/books?id=_bBhDwAAQBAJ&hl=id&source=gbs_book_other_versions). 
