@@ -253,21 +253,37 @@ ggplotly(forecastCompare %>%
 - Simplified forecasting function
 ```{r}
 
-
-fets <- function(input, fun, lambda = 0, h = 10, addDependentVar = 1){
+frcst <- function(forcastFeature = FALSE, 
+                  timeFeature = TRUE, 
+                  fun, 
+                  lambda = 0,
+                  h = 10, 
+                  freq = 24, 
+                  season = 7, 
+                  addDependentVar = 1){
   
+  # transform data into timeseries forecasting format
+  if (deparse(substitute(fun)) == "ets") {
+    input <- ts(forcastFeature, start = min(timeFeature), frequency = freq) + addDependentVar
+  } else if (deparse(substitute(fun)) == "stlm") {
+    input <- msts(forcastFeature, seasonal.periods = c(freq, freq * season)) + addDependentVar
+  }
+
   # Function to add constant avoid Infinite log transformation value
   removeConstant <- function(forecastResult, constant = addDependentVar){
     forecastResult[["mean"]] <- forecastResult[["mean"]] - constant
     forecastResult[["upper"]] <- forecastResult[["upper"]] - constant
     forecastResult[["lower"]] <- forecastResult[["lower"]] - constant
     return(forecastResult)
-    }
+  }
   
-  input %>% 
+  # Forecasting
+  forecasting <- input %>%
     fun(lambda = lambda) %>%
-    forecast(h = h) %>% 
+    forecast(h = h) %>%
     removeConstant()
+  
+  return(forecasting)
 }
 ```
 
