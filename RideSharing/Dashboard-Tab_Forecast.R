@@ -89,52 +89,159 @@ tab_Forecast_ui <- tabPanel(title = "Forecasting",
               
               sidebarPanel(
                 width = 4,
-                fluidRow(
-                  column(width = 12,
-                         HTML(paste0("<h2>Demand Forecasting</h2>",
-                                     "<p>This section shows a demo of a forecasting function to predict the 
-                                     ride sharing demand on the service provider. To test the accuracy, forecasting 
-                                     is conducted to redict the last (n) datapoints. These are the instruction to 
-                                     control the forecasting</p>
-                                     <ul>
-                                     <li>Choose the forecasting method</li>
-                                     <li>Select total datapoints to be predicted</li>
-                                     </ul>
-                                     ")))),
-                fluidRow(column(width = 6,
-                                # Select forcasting method
-                                pickerInput(
-                                  inputId = "forecastMethod",
-                                  label = "Style : primary", 
-                                  choices = c("ets", "stlm"),
-                                  options = list(
-                                    style = "btn-primary")
-                                )),
-                         column(width = 6,
-                                # Space for feature
-                                sliderTextInput(inputId = "dateRange",
-                                                label = "Choose date range:",
-                                                choices = timeRange,
-                                                selected = c(min(timeRange), max(timeRange))
-                                ))),
-                fluidRow(column(width = 12,
-                                sliderInput(inputId = "tail",
-                                            label = "Set n tail datapoint",
-                                            value = seq(1,100,1),
-                                            min = 1,
-                                            max = 200)))
-              ), 
+                
+                # If tab explored data selected
+                conditionalPanel(
+                  condition = "input.tabselected == 1",
+                  fluidRow(
+                    column(width = 12,
+                           HTML(paste0(
+                            "
+                            <h2>Preliminary Analysis</h2>
+                            <p align='justify'>One of steps in conducting a forecasting is to perform a preliminary 
+                            analysis. In this preliminary analysis, we will find a consistent pattern
+                            (such a trend or seasonality) or outliers that requires a contextual 
+                            knowledge to be explained. Findings in this preliminary analysis defines
+                            the appropriate forecasting tool.</p>
+                            "))
+                           )),
+                  
+                  fluidRow(
+                    column(width = 6,
+                           tags$style(".fa-check-square {color = steelblue}"),
+                           tags$style(".fa-square-o {color = steelblue}"),
+                           radioGroupButtons(
+                             inputId = "plotEDopt",
+                             label = "Select profile",
+                             choices = c("Week", "Day"),
+                             direction = "horizontal",
+                             width = "200px",
+                             status = "primary", 
+                             justified = T, 
+                             checkIcon = list(
+                               yes = icon("check-square"),
+                               no = icon("square-o"))
+                           ))
+                  )
+                  ),
+                
+                # If tab forecasting selected
+                conditionalPanel(
+                  condition = "input.tabselected == 2",
+                  fluidRow(
+                    column(width = 12,
+                           HTML(paste0(
+                             "<h2>Demand Forecasting</h2>",
+                              "<p align='justify'>
+                              This section shows a demo of a forecasting function to predict the 
+                              ride sharing demand on the service provider. To test the accuracy, forecasting 
+                              is conducted to redict the last (n) datapoints. These are the instruction to 
+                              control the forecasting</p>
+                              <ul>
+                              <li>Choose the forecasting method</li>
+                              <li>Select total datapoints to be predicted</li>
+                              </ul>
+                              ")))
+                    ),
+                  fluidRow(
+                    column(width = 6,
+                           # Select forcasting method
+                           pickerInput(
+                              inputId = "forecastMethod",
+                              label = "Style : primary", 
+                              choices = c("ets", "stlm", "tbats"),
+                              options = list(
+                              style = "btn-primary")
+                              )),
+                    column(width = 6,
+                           # Space for feature
+                           sliderTextInput(inputId = "dateRange",
+                               label = "Choose date range:",
+                               choices = timeRange,
+                               selected = c(min(timeRange), max(timeRange))
+                               ))
+                    ),
+                  fluidRow(
+                    column(width = 12,
+                           sliderInput(inputId = "tail",
+                                label = "Set n tail datapoint", 
+                                value = 1,
+                                min = 1,
+                                max = 200))
+                    )
+                  )), 
                           
-              mainPanel(
-                width = 8
-              )
-              
-              )
+              mainPanel(width = 8,
+                        tabsetPanel(id = "tabselected",
+                
+                # Tab to explain the data 
+                tabPanel(title = "Explored Data",
+                         value = 1,
+                         tags$h2("Exploration"),
+                         fluidRow(column(width = 12,
+                                         plotOutput(outputId = "plotED1", height = 300))
+                                  )
+                         ),
+                
+                # Tab for forecasting
+                tabPanel(title = "Forecasting",
+                         value = 2,
+                         tags$h2("Exploration"),
+                         fluidRow(column(width = 12))
+                         ))
+                ))
             )
 
 
 tab_Forecast_server <- function(input, output, session){
-  output$plotForecast <- renderPlotly({
-    input <- 0
+  
+  # Explored Data
+  output$plotED1 <- renderPlot({
+    
+    if (input$plotEDopt == "Week") {
+      rideOrder %>%
+        group_by(Week, Day = wday(Date, label = F)) %>%
+        summarise(Cancelled = sum(cancelled),
+                  Confirmed = sum(confirmed),
+                  Nodriver = sum(nodrivers)) %>% 
+        gather(key, value, Cancelled, Confirmed, Nodriver) %>% 
+        ggplot(aes(x = Day,
+                   y = value,
+                   group = key,
+                   color = as.factor(key))) +
+        geom_line() +
+        geom_point(aes(x = Day,
+                       y = value)) +
+        facet_grid(.~Week) +
+        theme_classic() +
+        theme(panel.spacing.x = unit(0, "lines"),
+              legend.position = c(0.06,0.8)) +
+        labs(x = "Day of the week",
+             y = "Total demand",
+             title = "Seasonal profile",
+             color = "Total demand")
+      
+    } else if (input$plotEDopt == "Day") {
+      rideOrder %>% 
+        group_by(Day = wday(Date, label = T),
+                 Hour) %>%
+        summarise(Cancelled = sum(cancelled),
+                  Confirmed = sum(confirmed),
+                  Nodriver = sum(nodrivers)) %>%   
+        ggplot(aes(x = Hour,
+                   y = Confirmed,
+                   group = Day,
+                   color = as.factor(Day))) +
+        geom_line(size = 1) +
+        theme_classic() +
+        theme(legend.position = c(0.06,0.7)) +
+        labs(x = "Hour of the day",
+             y = "Total demand",
+             title = "Daily profile",
+             color = "Operational day") +
+        scale_color_colorblind()
+    }
+
   })
+  
 }
