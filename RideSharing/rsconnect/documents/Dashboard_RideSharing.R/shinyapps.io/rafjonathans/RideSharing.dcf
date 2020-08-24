@@ -1,0 +1,12 @@
+name: RideSharing
+title: RideSharing
+username:
+account: rafjonathans
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2699761
+bundleId: 3549931
+url: https://rafjonathans.shinyapps.io/RideSharing/
+when: 1598247553.00761
+asMultiple: FALSE
+asStatic: FALSE

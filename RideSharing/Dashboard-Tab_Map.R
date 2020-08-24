@@ -24,19 +24,21 @@ tab_Map_ui <- tabPanel(title = "Map",
                       sidebarPanel(width = 4,
                                    fluidRow(column(width = 12,
                                                    HTML(
-                                                     paste0("<h2>Ride Sharing Map</h2>
-                        <p>This app visualize the order and destination location in a ride sharing 
-                        application. Dataset used in this application can be found 
-                        <a href='https://rpubs.com/aepoetry/beam_me_up'>here</a></p>
-                        
-                        <h4>Map Control</h4>
-                        <p>Instruction(s):
-                        <ul>
-                          <li>Choose the departing or destination location to be shown on the map</li>
-                          <li>Select observed date on the dateInput column</li>
-                          <li>Use the slider to control the daytime observation</li>
-                        </ul>
+                                                     paste0(
+                        "<h2>Ride Sharing</h2>
+                        <p align = 'justify'>This application explores and forecasts the demand of the ride sharing service 
+                        in Turkey named <a href = 'https://scotty.app/'>Scotty</a>. Scotty is the fastest 
+                        growing Turkish born technology start-up, serving in three verticals; ride-sharing, 
+                        food delivery and courier delivery in Istanbul.
+                        <h3>Customer Demand Location</h4>
+                        <p>This part shows the customer location on the map. There are three features to 
+                        control the map visualization, including:
                         </p>
+                        <ul>
+                          <li>Demand type, customer's request or destination location</li>
+                          <li>Date, Date of the customer's demand</li>
+                          <li>Hour, Hour of the day of the customer's demand</li>
+                        </ul>
                         "
                                                      )))),
                                    fluidRow(
@@ -72,13 +74,20 @@ tab_Map_ui <- tabPanel(title = "Map",
                                               label = "Choose time:", 
                                               choices = hourRange,
                                               grid = TRUE
-                                            )))
+                                            ))),
+                                    fluidRow(column(width = 12,
+                                                    HTML(paste0(
+                          "<p align= 'justify'>From this mapping, it can be seen that the customers request location is mostly
+                          around the city and some outside the city or Istanbul. For the destination location,
+                          it seems that the dataset shows the destination is to outside of Turkey region. 
+                          </p>"           
+                                                    ))))
                       ),
                       
                       
                       # Start design the main panel
                       mainPanel(width = 8,
-                                leafletOutput("orderridemap", height = 600)
+                                leafletOutput("orderridemap", height = 650)
                       )
                     ))
 
